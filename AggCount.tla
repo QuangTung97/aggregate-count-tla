@@ -159,6 +159,11 @@ Next ==
     \/ Terminated
 
 
+Spec == Init /\ [][Next]_vars
+
+FairSpec == Spec /\ WF_vars(Next)
+
+
 allPendingReplicas(k) ==
     LET
         checkCond(id) ==
