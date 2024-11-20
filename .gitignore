@@ -1,0 +1,5 @@
+/.vscode
+/states
+/*.tex
+/*.dvi
+/*.out
