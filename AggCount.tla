@@ -8,7 +8,7 @@ VARIABLES replicas, pending_counters
 vars == <<replicas, pending_counters>>
 
 min_repl_id == 21
-max_repl_id == 25
+max_repl_id == 24
 
 ReplicaID == min_repl_id..max_repl_id
 
