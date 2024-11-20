@@ -14,7 +14,9 @@ ReplicaID == min_repl_id..max_repl_id
 
 Status == {"pending", "written"}
 
-ReplicaInfo == [ds: Dataset, status: Status, storage: Storage, agg: BOOLEAN]
+AggStatus == {"need_include", "no_action", "need_remove"}
+
+ReplicaInfo == [ds: Dataset, status: Status, storage: Storage, agg: AggStatus]
 
 Replica == [ReplicaID -> ReplicaInfo \union {nil}]
 
@@ -36,7 +38,9 @@ Init ==
 
 addReplicaImpl(id, ds, st) ==
     LET
-        new_repl == [ds |-> ds, status |-> "pending", storage |-> st, agg |-> FALSE]
+        new_repl == [
+            ds |-> ds, status |-> "pending",
+            storage |-> st, agg |-> "need_include"]
         key == <<ds, st>>
         old_counter == pending_counters[key]
         new_counter == [old_counter EXCEPT !.need_update = TRUE, !.version = @ + 1]
@@ -61,9 +65,36 @@ updateCounterAfterWritten(r) ==
         ]
 
 
+computeAggStatusForWritten(old_val) ==
+    IF old_val = "no_action"
+        THEN "need_remove"
+        ELSE "no_action"
+
+
+doUpdateReplicaToWritten(id) ==
+    LET
+        old_repl == replicas[id]
+
+        need_remove_cond ==
+            \/ /\ old_repl.status = "pending"
+               /\ old_repl.agg = "no_action"
+            \/ /\ old_repl.status = "written"
+               /\ old_repl.agg = "need_remove"
+
+        new_agg ==
+            IF need_remove_cond
+                THEN "need_remove"
+                ELSE "no_action"
+
+        new_repl == [old_repl EXCEPT !.status = "written", !.agg = new_agg]
+    IN
+        replicas' = [replicas EXCEPT ![id] = new_repl]
+
+
 UpdateToWritten(id) ==
     /\ replicas[id] # nil
-    /\ replicas' = [replicas EXCEPT ![id].status = "written"]
+    /\ replicas[id].status # "written"
+    /\ doUpdateReplicaToWritten(id)
     /\ updateCounterAfterWritten(replicas[id])
 
 
@@ -76,15 +107,16 @@ replicaHasKey(id, k) ==
 getPendingReplicas(k) ==
     LET
         selectCond(id) ==
-            /\ replicaHasKey(id, k) \* TODO missing cond
+            /\ replicaHasKey(id, k)
+            /\ replicas[id].status = "pending"
     IN
         {id \in ReplicaID: selectCond(id)}
 
-setAggTrue(update_ids) ==
+setAggToNoAction(k) ==
     LET
         new_fn(id) ==
-            IF id \in update_ids
-                THEN [replicas[id] EXCEPT !.agg = TRUE]
+            IF replicaHasKey(id, k)
+                THEN [replicas[id] EXCEPT !.agg = "no_action"]
                 ELSE replicas[id] \* unchanged
     IN
         replicas' = [id \in ReplicaID |-> new_fn(id)]
@@ -98,7 +130,7 @@ doUpdatePendingCounter(k) ==
         new_counter == [old_counter EXCEPT !.count = num, !.need_update = FALSE]
     IN
         /\ pending_counters' = [pending_counters EXCEPT ![k] = new_counter]
-        /\ setAggTrue(pending_repls)
+        /\ setAggToNoAction(k)
 
 
 UpdatePendingCounter(k) ==
@@ -109,7 +141,7 @@ UpdatePendingCounter(k) ==
 TerminateCond ==
     /\ \A id \in ReplicaID:
         /\ replicas[id] # nil
-        /\ replicas[id].agg = TRUE
+        /\ replicas[id].agg = "no_action"
     /\ \A key \in PendingKey: pending_counters[key].need_update = FALSE
 
 Terminated ==
@@ -119,7 +151,7 @@ Terminated ==
 
 Next ==
     \/ \E id \in ReplicaID, ds \in Dataset, st \in Storage:
-        AddReplica(id, ds, st)
+        \/ AddReplica(id, ds, st) \* TODO Add Written Replica
     \/ \E id \in ReplicaID:
         UpdateToWritten(id)
     \/ \E k \in PendingKey:
@@ -138,13 +170,18 @@ allPendingReplicas(k) ==
 
 numPendingByCounter(k) ==
     LET
-        checkCond(id) ==
+        isPending(id) ==
             /\ replicaHasKey(id, k)
-            /\ replicas[id].agg = FALSE
-            /\ replicas[id].status = "pending"
-        S == {id \in ReplicaID: checkCond(id)}
+            /\ replicas[id].agg = "need_include"
+
+        isNonPending(id) ==
+            /\ replicaHasKey(id, k)
+            /\ replicas[id].agg = "need_remove"
+
+        S1 == {id \in ReplicaID: isPending(id)}
+        S2 == {id \in ReplicaID: isNonPending(id)}
     IN
-        Cardinality(S) + pending_counters[k].count
+        Cardinality(S1) + pending_counters[k].count - Cardinality(S2)
 
 Inv ==
     /\ \A k \in PendingKey:
