@@ -36,31 +36,43 @@ Init ==
     /\ pending_counters = [k \in PendingKey |-> initCounter]
 
 
-addReplicaImpl(id, ds, st) ==
+addPendingReplicaImpl(id, ds, st) ==
     LET
         new_repl == [
             ds |-> ds, status |-> "pending",
             storage |-> st, agg |-> "need_include"]
         key == <<ds, st>>
-        old_counter == pending_counters[key]
-        new_counter == [old_counter EXCEPT !.need_update = TRUE]
     IN
         /\ replicas' = [replicas EXCEPT ![id] = new_repl]
-        /\ pending_counters' = [pending_counters EXCEPT ![key] = new_counter]
+        /\ pending_counters' = [pending_counters EXCEPT ![key].need_update = TRUE]
     
 
-AddReplica(id, ds, st) ==
+AddPendingReplica(id, ds, st) ==
     /\ replicas[id] = nil
-    /\ addReplicaImpl(id, ds, st)
+    /\ addPendingReplicaImpl(id, ds, st)
+
+
+addWrittenReplicaImpl(id, ds, st) ==
+    LET
+        new_repl == [
+            ds |-> ds, status |-> "written",
+            storage |-> st, agg |-> "no_action"]
+        key == <<ds, st>>
+    IN
+        /\ replicas' = [replicas EXCEPT ![id] = new_repl]
+        /\ pending_counters' = [pending_counters EXCEPT ![key].need_update = TRUE]
+
+
+AddWrittenReplica(id, ds, st) ==
+    /\ replicas[id] = nil
+    /\ addWrittenReplicaImpl(id, ds, st)
 
 
 updateCounterAfterWritten(r) ==
     LET
         k == <<r.ds, r.storage>>
     IN
-        pending_counters' = [
-            pending_counters EXCEPT ![k] = [@ EXCEPT !.need_update = TRUE]
-        ]
+        pending_counters' = [pending_counters EXCEPT ![k].need_update = TRUE]
 
 
 computeAggStatusForWritten(old_val) ==
@@ -149,7 +161,8 @@ Terminated ==
 
 Next ==
     \/ \E id \in ReplicaID, ds \in Dataset, st \in Storage:
-        \/ AddReplica(id, ds, st) \* TODO Add Written Replica
+        \/ AddPendingReplica(id, ds, st)
+        \/ AddWrittenReplica(id, ds, st)
     \/ \E id \in ReplicaID:
         UpdateToWritten(id)
     \/ \E k \in PendingKey:
