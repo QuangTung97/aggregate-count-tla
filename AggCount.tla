@@ -202,9 +202,25 @@ numPendingByCounter(k) ==
     IN
         Cardinality(S1) + pending_counters[k].count - Cardinality(S2)
 
+
+invalidStatePending ==
+    \E id \in ReplicaID:
+        /\ replicas[id] # nil
+        /\ replicas[id].status = "pending"
+        /\ replicas[id].agg = "need_remove"
+
+invalidStateWritten ==
+    \E id \in ReplicaID:
+        /\ replicas[id] # nil
+        /\ replicas[id].status = "written"
+        /\ replicas[id].agg = "need_include"
+
+
 Inv ==
     /\ \A k \in PendingKey:
         allPendingReplicas(k) = numPendingByCounter(k)
+    /\ ~invalidStatePending
+    /\ ~invalidStateWritten
 
 
 Sym == Permutations(Dataset) \union Permutations(Storage)
