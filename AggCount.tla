@@ -22,14 +22,14 @@ Replica == [ReplicaID -> ReplicaInfo \union {nil}]
 
 PendingKey == Dataset \X Storage
 
-PendingInfo == [count: 0..100, need_update: BOOLEAN, version: 0..500]
+PendingInfo == [count: 0..100, need_update: BOOLEAN]
 
 TypeOK ==
     /\ replicas \in Replica
     /\ pending_counters \in [PendingKey -> PendingInfo]
 
 
-initCounter == [count |-> 0, need_update |-> FALSE, version |-> 0]
+initCounter == [count |-> 0, need_update |-> FALSE]
 
 Init ==
     /\ replicas = [id \in ReplicaID |-> nil]
@@ -43,7 +43,7 @@ addReplicaImpl(id, ds, st) ==
             storage |-> st, agg |-> "need_include"]
         key == <<ds, st>>
         old_counter == pending_counters[key]
-        new_counter == [old_counter EXCEPT !.need_update = TRUE, !.version = @ + 1]
+        new_counter == [old_counter EXCEPT !.need_update = TRUE]
     IN
         /\ replicas' = [replicas EXCEPT ![id] = new_repl]
         /\ pending_counters' = [pending_counters EXCEPT ![key] = new_counter]
@@ -59,9 +59,7 @@ updateCounterAfterWritten(r) ==
         k == <<r.ds, r.storage>>
     IN
         pending_counters' = [
-            pending_counters EXCEPT ![k] = [
-                @ EXCEPT !.need_update = TRUE, !.version = @ + 1
-            ]
+            pending_counters EXCEPT ![k] = [@ EXCEPT !.need_update = TRUE]
         ]
 
 
@@ -162,6 +160,9 @@ Next ==
 Spec == Init /\ [][Next]_vars
 
 FairSpec == Spec /\ WF_vars(Next)
+
+
+AlwaysTerminate == <> TerminateCond
 
 
 allPendingReplicas(k) ==
